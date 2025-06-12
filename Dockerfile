@@ -27,4 +27,4 @@ COPY . .
 EXPOSE 8000
 
 # Jalankan Chainlit
-CMD ["chainlit", "run", "app.py", "-w", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["chainlit", "run", "app/app.py", "-w", "--host", "0.0.0.0", "--port", "8000"]
