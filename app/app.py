@@ -140,8 +140,8 @@ generate_response_async = cl.make_async(generate_response_with_ollama)
 @cl.oauth_callback
 def oauth_callback(provider_id: str, token: str, raw_user_data: Dict[str, str], default_user: cl.User) -> Optional[cl.User]:
     try:
-        email = raw_user_data.get("email") or "unknown@example.com"
-        name = raw_user_data.get("name") or "Anonymous"
+        email = raw_user_data.get("email") or f"{raw_user_data.get('login', 'unknown')}@github.com"
+        name = raw_user_data.get("name") or raw_user_data.get("login") or "Anonymous"
         logger.info(f"OAuth login success: {email} ({name})")
         return cl.User(identifier=email, metadata={"name": name})
     except Exception as e:
