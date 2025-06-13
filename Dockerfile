@@ -23,6 +23,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Salin seluruh project ke dalam container
 COPY . .
 
+# Pastikan Chainlit bisa akses folder public
+RUN ln -s /app/app/public /app/public && chmod -R 755 /app/app/public
+
 # Expose port untuk Chainlit
 EXPOSE 8000
 
