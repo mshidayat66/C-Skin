@@ -31,8 +31,8 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 logger.info(f"Using device: {device}")
 
 model = SentenceTransformer('BAAI/bge-m3', device=device)
-client = qdrant_client.QdrantClient(os.environ["QDRANT_URL"])
-llama = ChatTogether(model="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", api_key=os.environ.get("TOGETHER_API_KEY"), max_retries=2,)
+client = qdrant_client.QdrantClient(os.environ["QDRANT_URL"], timeout=10.00)
+llama = ChatTogether(model="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", api_key=os.environ.get("TOGETHER_API_KEY"), max_retries=3)
 
 # ----------------------------
 # Function: Language Detection & Translation
