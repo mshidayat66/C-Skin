@@ -7,3 +7,4 @@ langdetect==1.0.9
 sqlalchemy==1.4.22
 asyncpg==0.30.0
 langchain_community==0.3.24
+langchain-together==0.3.0
