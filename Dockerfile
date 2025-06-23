@@ -30,4 +30,4 @@ RUN ln -s /app/app/public /app/public && chmod -R 755 /app/app/public
 EXPOSE 8000
 
 # Jalankan Chainlit
-CMD ["chainlit", "run", "app/app.py", "-w", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "chainlit run app/app.py -w --host 0.0.0.0 --port ${PORT:-8000}"]
