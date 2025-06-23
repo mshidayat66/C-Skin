@@ -2,11 +2,12 @@ import chainlit as cl
 from sentence_transformers import SentenceTransformer
 import torch
 import qdrant_client
-from langchain.llms import Ollama
+from langchain_together import ChatTogether
+from langchain_core.messages import HumanMessage
+from langchain.prompts import PromptTemplate
 import logging
 import time
 from langdetect import detect
-from typing import Optional, Dict
 from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
 import os
 
@@ -31,7 +32,7 @@ logger.info(f"Using device: {device}")
 
 model = SentenceTransformer('BAAI/bge-m3', device=device)
 client = qdrant_client.QdrantClient(os.environ["QDRANT_URL"])
-llama = Ollama(base_url=os.environ["LLM_URL"], model="llama3.1:8b", temperature=0.0, mirostat_tau=4.0, mirostat_eta=0.65)
+llama = ChatTogether(model="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", api_key=os.environ.get("TOGETHER_API_KEY"), max_retries=2,)
 
 # ----------------------------
 # Function: Language Detection & Translation
@@ -42,20 +43,19 @@ def detect_and_translate(text):
         logger.info(f"Detected language: {detected_lang}")
         if detected_lang == "en":
             return text
-        else:
-            translation_prompt = f"""
-Translate the following sentence from {detected_lang} to English. Do not add explanation, just translate.
+        translation_prompt = f"""
+            Translate the following sentence from {detected_lang} to English. Do not add explanation, just translate.
 
-Original ({detected_lang}): {text}
-English:
-"""
-            translated = llama.invoke(translation_prompt)
-            translated = translated.strip()
-            if not translated:
-                logger.warning("Translation result is empty. Returning original text.")
-                return text
-            logger.info(f"Translation result: {translated}")
-            return translated
+            Original ({detected_lang}): {text}
+            English:
+            """
+        response = llama.invoke(translation_prompt)
+        translated = response.content.strip()
+        if not translated:
+            logger.warning("Translation result is empty. Returning original text.")
+            return text
+        logger.info(f"Translation result: {translated}")
+        return translated
     except Exception as e:
         logger.warning(f"Language detection or translation failed: {e}")
         return text
@@ -66,7 +66,7 @@ English:
 def search(query):
     logger.info(f"Searching Qdrant for query: {query}")
     try:
-        start_time = time.time()  # Mulai stopwatch
+        start_time = time.time()
 
         query_vector = model.encode(query).tolist()
         results = client.search(
@@ -77,7 +77,7 @@ def search(query):
             score_threshold=0.4
         )
 
-        duration = time.time() - start_time  # Hitung durasi
+        duration = time.time() - start_time
         logger.info(f"Qdrant search took {duration:.2f} seconds and found {len(results)} results")
 
         final_results = []
@@ -89,19 +89,25 @@ def search(query):
     except Exception as e:
         logger.error(f"Search failed: {e}")
         return []
-    
+
 # ----------------------------
-# Function: Generate Response Using Ollama
+# Function: Generate Response
 # ----------------------------
-def generate_response_with_ollama(context, query, tone="professional and friendly"):
+def generate_response(context, query, tone="professional and friendly"):
     try:
         start_time = time.time()
+
+        # Gabungkan dokumen konteks menjadi teks
         context_text = "\n\n".join([f"Doc {i+1}:\n{ctx.strip()}" for i, ctx in enumerate(context)])
-        prompt = f"""
+
+        # Template untuk prompt
+        prompt_template = PromptTemplate(
+            input_variables=["context", "query", "tone"],
+            template=""" 
 Anda adalah chatbot kesehatan bernama C-Skin. Silakan jawab setiap pertanyaan pengguna dengan nada: {tone}.
 
 Petunjuk untuk menjawab pertanyaan terkait penyakit:
-- Jawablah hanya menggunakan informasi yang tersedia dalam {context}.
+- Jawablah hanya menggunakan informasi yang tersedia dalam konteks.
 - Jika pertanyaan berkaitan dengan penyakit, berikan informasi yang akurat, ringkas, dan lengkap berdasarkan konteks.
 - Jika tidak ditemukan informasi yang relevan dalam konteks, jangan berspekulasi atau mengarang jawaban. Sebagai gantinya, balas dengan: "Ini adalah semua informasi yang saya miliki."
 - Hindari penggunaan istilah medis yang rumit atau tidak umum. Gunakan bahasa yang sederhana dan mudah dipahami oleh masyarakat umum.
@@ -119,20 +125,27 @@ Pertanyaan Pengguna:
 
 Jawab hanya dalam Bahasa Indonesia.
 """
-        result = llama.invoke(prompt, stream=False)
-        duration = time.time() - start_time
-        logger.info(f"Ollama response generation took {duration:.2f} seconds")
-        logger.info(f"Generated response preview: {result[:100]}...")
-        return result.strip()
+        )
+
+        formatted_prompt = prompt_template.format(context=context_text, query=query, tone=tone)
+        messages = [HumanMessage(content=formatted_prompt)]
+
+        response = llama.invoke(messages)
+        output = response.content.strip()
+
+        logger.info(f"LLM response generation took {time.time() - start_time:.2f} seconds")
+        logger.info(f"Generated response preview: {output[:100]}...")
+        return output.strip()
+
     except Exception as e:
-        logger.error(f"Ollama response generation failed: {e}")
+        logger.error(f"LLM response generation failed: {e}")
         return "Terjadi kesalahan saat menghasilkan jawaban. Silakan coba lagi."
 
 # ----------------------------
 # Async Wrappers
 # ----------------------------
 search_async = cl.make_async(search)
-generate_response_async = cl.make_async(generate_response_with_ollama)
+generate_response_async = cl.make_async(generate_response)
 
 # ----------------------------
 # OAuth / Login
@@ -156,34 +169,24 @@ async def main(message: cl.Message):
     try:
         logger.info("Handling user message")
 
-        # Simpan input asli pengguna
         original_query = message.content
-
-        # Terjemahkan untuk pencarian & respon
         query = await cl.make_async(detect_and_translate)(original_query)
         logger.info(f"Translated query: {query}")
 
-        # Ambil atau inisialisasi history dari session
         history = cl.user_session.get("history", [])
         history.append({"role": "user", "text": original_query})
 
-        # Lakukan pencarian berdasarkan hasil terjemahan
         results = await search_async(query)
         if not results:
             await cl.Message(content="Tidak ditemukan informasi yang relevan.", author="C-Skin Chatbot").send()
             return
 
-        # Buat jawaban berdasarkan hasil pencarian
         response = await generate_response_async(results, query)
 
-        # Simpan respon ke history
         history.append({"role": "assistant", "text": response})
         cl.user_session.set("history", history)
 
-        await cl.Message(
-            content=response,
-            author="C-Skin Chatbot"
-        ).send()
+        await cl.Message(content=response, author="C-Skin Chatbot").send()
 
     except Exception as e:
         logger.error(f"Unexpected error in main handler: {e}")
@@ -203,22 +206,6 @@ async def on_chat_resume(thread):
         return
 
     history = cl.user_session.get("history", [])
-
-    # Hanya tampilkan balasan dari chatbot
     for msg in history:
         if msg["role"] == "assistant":
             await cl.Message(content=msg["text"], author="C-Skin Chatbot").send()
-
-        
-# ----------------------------
-# Feedback Handler
-# ----------------------------
-#@cl.on_feedback
-#async def on_feedback(feedback):
-#    message_id = getattr(feedback, "message_id", None)
-#    thread_id = getattr(feedback, "thread_id", None)
-#    score = getattr(feedback, "score", None)
-#    comment = getattr(feedback, "comment", "")
-
-#    print(f"Feedback diterima: message_id={message_id}, thread_id={thread_id}, score={score}, comment={comment}")
-   
