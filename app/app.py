@@ -10,6 +10,7 @@ import time
 from langdetect import detect
 from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
 import os
+from typing import Optional, Dict
 
 # ----------------------------
 # Logging Configuration
